@@ -17,7 +17,7 @@ set -euo pipefail
 
 # ---- Config (edit these) ----
 RFDETR_VARIANT="base"          # nano|small|base|medium|large
-NUM_CLASSES=80                 # COCO 80
+NUM_CLASSES=17                 # ARKitScenes 17 classes (change to 80 for COCO)
 PHASE=1                        # 1=freeze RF-DETR, 2=fine-tune all
 EPOCHS=24
 BATCH_SIZE=4                   # Adjust for GPU memory (A100: 8, A6000: 4, 3090: 2)
@@ -64,67 +64,23 @@ echo "Step 2: Data setup"
 echo "=========================================="
 
 if [ ! -d "$DATA_ROOT" ]; then
-    echo "Downloading WildDet3D-Data from HuggingFace..."
-    echo "(This downloads the training annotations + images)"
-    echo ""
-    echo "NOTE: You need to prepare your data in this format:"
-    echo "  ${DATA_ROOT}/"
-    echo "    annotations.json   # or train_annotations.json"
-    echo "    images/            # image files"
-    echo "    depth/             # optional depth maps (.npz)"
-    echo ""
-    echo "For WildDet3D-Data, download from:"
-    echo "  https://huggingface.co/datasets/allenai/WildDet3D-Data"
-    echo ""
-    echo "For ARKitScenes, download from:"
-    echo "  https://github.com/apple/ARKitScenes"
+    echo "No data found at ${DATA_ROOT}. Downloading ARKitScenes..."
     echo ""
 
-    # Uncomment one of these to auto-download:
+    # Download ARKitScenes 3DOD (Validation: ~60GB, Training: ~560GB)
+    # Change --split and --max_scenes to control download size
+    uv run python scripts/prepare_arkitscenes.py \
+        --split Training \
+        --output_dir "${DATA_ROOT}" \
+        --download_dir data/arkitscenes_raw \
+        --frame_step 10 \
+        --max_frames_per_scene 50
 
-    # Option A: WildDet3D-Data (HuggingFace)
-    # pip install huggingface_hub
-    # huggingface-cli download allenai/WildDet3D-Data --local-dir data/wilddet3d/
+    echo "ARKitScenes prepared at ${DATA_ROOT}/"
+    echo ""
 
-    # Option B: Create a small test dataset for validation
-    echo "Creating small test dataset for pipeline validation..."
-    mkdir -p "${DATA_ROOT}/images"
-    uv run python -c "
-import json, numpy as np
-from PIL import Image
-
-# Create 10 dummy images with annotations
-images = []
-annotations = []
-for i in range(10):
-    img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-    fname = f'img_{i:04d}.jpg'
-    Image.fromarray(img).save(f'${DATA_ROOT}/images/{fname}')
-    images.append({
-        'id': i, 'file_name': fname, 'width': 640, 'height': 480,
-        'intrinsics': [[500,0,320],[0,500,240],[0,0,1]]
-    })
-    for j in range(np.random.randint(1, 5)):
-        x, y = np.random.randint(0, 400, 2)
-        w, h = np.random.randint(50, 150, 2)
-        annotations.append({
-            'id': len(annotations), 'image_id': i,
-            'category_id': int(np.random.randint(0, 80)),
-            'bbox': [int(x), int(y), int(w), int(h)],
-            'bbox3d': {
-                'center': np.random.uniform(-5, 5, 3).tolist(),
-                'dimensions': np.random.uniform(0.5, 3, 3).tolist(),
-                'quaternion': [1, 0, 0, 0]
-            }
-        })
-
-categories = [{'id': i, 'name': f'class_{i}'} for i in range(80)]
-data = {'images': images, 'annotations': annotations, 'categories': categories}
-with open('${DATA_ROOT}/train_annotations.json', 'w') as f:
-    json.dump(data, f)
-print(f'Created {len(images)} images, {len(annotations)} annotations')
-"
-    echo "Test dataset created at ${DATA_ROOT}/"
+    # To test with just a few scenes first, use:
+    #   --split Validation --max_scenes 10
 fi
 
 # ---- Step 3: Download model checkpoint (optional) ----
