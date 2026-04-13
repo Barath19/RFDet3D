@@ -150,18 +150,20 @@ class RFDet3DLoss(nn.Module):
 
         # ========== 3. 3D losses ==========
         if out.pred_boxes_3d is not None and batch.gt_boxes3d is not None:
-            # Run matcher for final layer to get indices for 3D
-            group_detr = self.criterion_2d.group_detr if self.training else 1
-            outputs_no_aux = {
-                "pred_logits": out.pred_logits,
-                "pred_boxes": out.pred_boxes_2d,
+            # Run matcher with group_detr=1 for 3D — pred_boxes_3d is only
+            # for the first query group (B, num_queries, 12), not all groups.
+            num_queries = out.pred_boxes_3d.shape[1]
+            outputs_for_3d = {
+                "pred_logits": out.pred_logits[:, :num_queries],
+                "pred_boxes": out.pred_boxes_2d[:, :num_queries],
             }
             indices = self.criterion_2d.matcher(
-                outputs_no_aux, targets, group_detr=group_detr
+                outputs_for_3d, targets, group_detr=1
             )
 
             loss_3d = self._loss_boxes_3d(
-                out.pred_boxes_2d, out.pred_boxes_3d,
+                out.pred_boxes_2d[:, :num_queries],
+                out.pred_boxes_3d,
                 indices, targets, batch.intrinsics,
                 image_size=(H, W),
             )
@@ -262,6 +264,14 @@ class RFDet3DLoss(nn.Module):
             # GT 3D boxes
             gt_3d = self._get_gt_boxes3d(i, tgt_idx, targets, device)
             if gt_3d is None:
+                if not hasattr(self, '_warned_no_3d'):
+                    has_key = "boxes3d" in targets[i]
+                    gt3d_val = targets[i].get("boxes3d")
+                    print(f"[3D LOSS DEBUG] batch_idx={i}, matched={len(src_idx)}, "
+                          f"has_boxes3d_key={has_key}, "
+                          f"gt3d_type={type(gt3d_val).__name__ if gt3d_val is not None else 'None'}, "
+                          f"gt3d_shape={gt3d_val.shape if hasattr(gt3d_val, 'shape') else 'N/A'}")
+                    self._warned_no_3d = True
                 continue
 
             # Encode GT 3D → target parameterization
@@ -279,7 +289,8 @@ class RFDet3DLoss(nn.Module):
                 all_weights_3d.append(weights)
 
         if len(all_src_3d) == 0:
-            zero = torch.tensor(0.0, device=device)
+            # Return zero losses connected to pred_boxes_3d for gradient flow
+            zero = (pred_boxes_3d * 0).sum()
             return {
                 "loss_delta_2d": zero, "loss_depth": zero,
                 "loss_dim": zero, "loss_rot": zero,
