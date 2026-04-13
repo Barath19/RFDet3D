@@ -19,6 +19,7 @@ dependencies = [
     "timm>=1.0.26",
     "iopath>=0.1.10",
     "pydantic>=2.0",
+    "wandb>=0.26.0",
 ]
 
 [tool.uv]

@@ -108,6 +108,7 @@ class RFDet3DLoss(nn.Module):
         self,
         out: RFDet3DOut,
         batch: RFDet3DInput,
+        **kwargs,
     ) -> dict[str, Tensor]:
         """Compute all losses.
 
@@ -209,7 +210,11 @@ class RFDet3DLoss(nn.Module):
                 h = boxes_norm[:, 3] - boxes_norm[:, 1]
                 boxes_cxcywh = torch.stack([cx, cy, w, h], dim=-1)
 
-                targets.append({"labels": labels, "boxes": boxes_cxcywh})
+                target_dict = {"labels": labels, "boxes": boxes_cxcywh}
+                # Pass through 3D GT if available
+                if batch.gt_boxes3d is not None and batch.gt_boxes3d[i] is not None:
+                    target_dict["boxes3d"] = batch.gt_boxes3d[i].to(device)
+                targets.append(target_dict)
             else:
                 targets.append({
                     "labels": torch.zeros(0, dtype=torch.long, device=device),
@@ -317,11 +322,13 @@ class RFDet3DLoss(nn.Module):
         self, batch_idx: int, tgt_idx: Tensor,
         targets: list[dict], device: torch.device,
     ) -> Tensor | None:
-        """Get GT 3D boxes for matched targets. Returns None if not available."""
-        # GT 3D boxes are stored in the batch, not in targets
-        # This requires the batch to be passed through
-        # For now, return None — will be connected when connector passes 3D GT
-        return None
+        """Get GT 3D boxes for matched targets."""
+        if "boxes3d" not in targets[batch_idx]:
+            return None
+        gt_3d = targets[batch_idx]["boxes3d"]
+        if gt_3d is None or len(gt_3d) == 0:
+            return None
+        return gt_3d[tgt_idx].to(device)
 
     def _loss_3d_conf(
         self,
