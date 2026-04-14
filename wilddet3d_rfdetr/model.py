@@ -39,6 +39,8 @@ from wilddet3d.depth.base import GeometryBackendBase
 from wilddet3d.data_types import Det3DOut
 from wilddet3d.ops.box2d import bbox_cxcywh_to_xyxy
 
+from wilddet3d_rfdetr.depth_encoder import DepthMapEncoder
+
 
 class RFDet3D(nn.Module):
     """RF-DETR with 3D Detection Head.
@@ -94,10 +96,15 @@ class RFDet3D(nn.Module):
             bbox3d_head = Det3DHead(
                 embed_dims=self.hidden_dim,
                 box_coder=box_coder or Det3DCoder(),
+                depth_latent_dim=128,
             )
         self.bbox3d_head = bbox3d_head
         self.box_coder = box_coder or Det3DCoder()
         self.geometry_backend = geometry_backend
+
+        # Simple depth encoder for GT depth (ARKit LiDAR, etc.)
+        # Used when geometry_backend is None but depth_gt is available
+        self.depth_encoder = DepthMapEncoder(latent_dim=128, downsample=16)
 
         # Freeze RF-DETR if requested
         if freeze_rfdetr:
@@ -179,6 +186,12 @@ class RFDet3D(nn.Module):
             depth_latents = geom_out.get("depth_latents")
             if self.training:
                 geom_losses = geom_out.get("losses", {})
+
+        # ========== Step 1b: Encode GT depth if available (ARKit LiDAR) ==========
+        if depth_latents is None and batch.depth_gt is not None:
+            depth_latents = self.depth_encoder(
+                batch.depth_gt.to(device), (H, W)
+            )
 
         # ========== Step 2: RF-DETR forward (2D detection) ==========
         # RF-DETR expects ImageNet-normalized images at its resolution
