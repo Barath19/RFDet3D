@@ -464,6 +464,10 @@ def main():
                         help="Max frames to sample per scene")
     parser.add_argument("--skip_download", action="store_true",
                         help="Skip download, only run conversion")
+    parser.add_argument("--cleanup", action="store_true", default=True,
+                        help="Delete raw scene data after processing to save disk (default: True)")
+    parser.add_argument("--no_cleanup", action="store_true",
+                        help="Keep raw scene data after processing")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -528,6 +532,11 @@ def main():
 
         if images:
             print(f"  → {len(images)} frames, {len(anns)} annotations")
+
+        # Delete raw scene to save disk (keeps only processed images/depth)
+        if not args.no_cleanup and scene_dir is not None and scene_dir.exists():
+            import shutil
+            shutil.rmtree(scene_dir, ignore_errors=True)
 
     # ---- Write output ----
     split_name = args.split.lower() if args.split != "both" else "all"
