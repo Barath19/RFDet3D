@@ -69,6 +69,12 @@ class COCO3DDataset(Dataset):
         ann_file = self.data_root / f"{split}_annotations.json"
         if not ann_file.exists():
             ann_file = self.data_root / "annotations.json"
+        if not ann_file.exists():
+            # Try any *_annotations.json file
+            candidates = sorted(self.data_root.glob("*_annotations.json"))
+            if candidates:
+                ann_file = candidates[0]
+                print(f"  Using annotation file: {ann_file.name}")
 
         if ann_file.exists():
             with open(ann_file) as f:
